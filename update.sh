@@ -29,17 +29,11 @@ declare -A gpgKeys=(
 )
 # see https://secure.php.net/downloads.php
 
-defaultDebianSuite='stretch-slim'
-declare -A debianSuites=(
-	[5.6]='jessie'
-	[7.0]='jessie'
-	[7.1]='jessie'
-)
-defaultAlpineVersion='3.6'
-declare -A alpineVersions=(
-	[5.6]='3.4'
-	[7.0]='3.4'
-	[7.1]='3.4'
+defaultUbuntuSuite='xenial'
+declare -A ubuntuSuites=(
+	[5.6]='xenial'
+	[7.0]='xenial'
+	[7.1]='xenial'
 )
 
 cd "$(dirname "$(readlink -f "$BASH_SOURCE")")"
@@ -63,96 +57,23 @@ generated_warning() {
 
 travisEnv=
 for version in "${versions[@]}"; do
-	rcVersion="${version%-rc}"
-
-	# scrape the relevant API based on whether we're looking for pre-releases
-	apiUrl="https://secure.php.net/releases/index.php?json&max=100&version=${rcVersion%%.*}"
-	apiJqExpr='
-		(keys[] | select(startswith("'"$rcVersion"'."))) as $version
-		| [ $version, (
-			.[$version].source[]
-			| select(.filename | endswith(".xz"))
-			|
-				"https://secure.php.net/get/" + .filename + "/from/this/mirror",
-				"https://secure.php.net/get/" + .filename + ".asc/from/this/mirror",
-				.sha256 // "",
-				.md5 // ""
-		) ]
-	'
-	if [ "$rcVersion" != "$version" ]; then
-		apiUrl='https://qa.php.net/api.php?type=qa-releases&format=json'
-		apiJqExpr='
-			.releases[]
-			| select(.version | startswith("'"$rcVersion"'."))
-			| [
-				.version,
-				.files.xz.path // "",
-				"",
-				.files.xz.sha256 // "",
-				.files.xz.md5 // ""
-			]
-		'
-	fi
-	IFS=$'\n'
-	possibles=( $(
-		curl -fsSL "$apiUrl" \
-			| jq --raw-output "$apiJqExpr | @sh" \
-			| sort -rV
-	) )
-	unset IFS
-
-	if [ "${#possibles[@]}" -eq 0 ]; then
-		echo >&2
-		echo >&2 "error: unable to determine available releases of $version"
-		echo >&2
-		exit 1
-	fi
+	rcVersion="${version}"
 
 	# format of "possibles" array entries is "VERSION URL.TAR.XZ URL.TAR.XZ.ASC SHA256 MD5" (each value shell quoted)
 	#   see the "apiJqExpr" values above for more details
-	eval "possi=( ${possibles[0]} )"
-	fullVersion="${possi[0]}"
-	url="${possi[1]}"
-	ascUrl="${possi[2]}"
-	sha256="${possi[3]}"
-	md5="${possi[4]}"
-
-	gpgKey="${gpgKeys[$rcVersion]}"
-	if [ -z "$gpgKey" ]; then
-		echo >&2 "ERROR: missing GPG key fingerprint for $version"
-		echo >&2 "  try looking on https://secure.php.net/downloads.php#gpg-$version"
-		exit 1
-	fi
-
-	# if we don't have a .asc URL, let's see if we can figure one out :)
-	if [ -z "$ascUrl" ] && wget -q --spider "$url.asc"; then
-		ascUrl="$url.asc"
-	fi
+	fullVersion="${rcVersion}"
 
 	dockerfiles=()
 
-	{ generated_warning; cat Dockerfile-debian.template; } > "$version/Dockerfile"
+	{ generated_warning; cat Dockerfile-ubuntu.template; } > "$version/Dockerfile"
 	cp -v \
 		docker-php-entrypoint \
-		docker-php-ext-* \
-		docker-php-source \
 		"$version/"
 	dockerfiles+=( "$version/Dockerfile" )
 
-	if [ -d "$version/alpine" ]; then
-		{ generated_warning; cat Dockerfile-alpine.template; } > "$version/alpine/Dockerfile"
-		cp -v \
-			docker-php-entrypoint \
-			docker-php-ext-* \
-			docker-php-source \
-			"$version/alpine/"
-		dockerfiles+=( "$version/alpine/Dockerfile" )
-	fi
-
 	for target in \
 		apache \
-		fpm fpm/alpine \
-		zts zts/alpine \
+		fpm \
 	; do
 		[ -d "$version/$target" ] || continue
 		base="$version/Dockerfile"
@@ -172,26 +93,17 @@ for version in "${versions[@]}"; do
 		' "$base" > "$version/$target/Dockerfile"
 		cp -v \
 			docker-php-entrypoint \
-			docker-php-ext-* \
-			docker-php-source \
 			"$version/$target/"
 		dockerfiles+=( "$version/$target/Dockerfile" )
 	done
 
-	debianSuite="${debianSuites[$rcVersion]:-$defaultDebianSuite}"
-	alpineVersion="${alpineVersions[$rcVersion]:-$defaultAlpineVersion}"
+	ubuntuSuite="${ubuntuSuites[$rcVersion]:-$defaultUbuntuSuite}"
 
 	(
 		set -x
 		sed -ri \
 			-e 's!%%PHP_VERSION%%!'"$fullVersion"'!' \
-			-e 's!%%GPG_KEYS%%!'"$gpgKey"'!' \
-			-e 's!%%PHP_URL%%!'"$url"'!' \
-			-e 's!%%PHP_ASC_URL%%!'"$ascUrl"'!' \
-			-e 's!%%PHP_SHA256%%!'"$sha256"'!' \
-			-e 's!%%PHP_MD5%%!'"$md5"'!' \
-			-e 's!%%DEBIAN_SUITE%%!'"$debianSuite"'!' \
-			-e 's!%%ALPINE_VERSION%%!'"$alpineVersion"'!' \
+			-e 's!%%UBUNTU_SUITE%%!'"$ubuntuSuite"'!' \
 			"${dockerfiles[@]}"
 	)
 
