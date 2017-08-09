@@ -2,3 +2,7 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
 		apache2 libapache2-mod-php%%PHP_VERSION%% \
 	&& rm -rf /var/lib/apt/lists/*
+
+RUN sed -i 's!ErrorLog .*$!ErrorLog /dev/stderr!g' /etc/apache2/sites-available/000-default.conf && \
+    sed -i 's!ErrorLog .*$!ErrorLog /dev/stderr!g' /etc/apache2/apache2.conf && \
+    sed -i 's!CustomLog .* combined$!CustomLog /dev/stdout combined!g' /etc/apache2/sites-available/000-default.conf
