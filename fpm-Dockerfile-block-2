@@ -1,6 +1,8 @@
 WORKDIR /var/www/html
 
 RUN echo "listen = [::]:9000" >> /etc/php/%%PHP_VERSION%%/fpm/pool.d/www.conf
+RUN mkdir /run/php
+RUN chown www-data: /run/php
 
 EXPOSE 9000
-CMD ["php-fpm%%PHP_VERSION%%"]
+CMD ["php-fpm%%PHP_VERSION%%", "-F"]
